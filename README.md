@@ -5,25 +5,33 @@ Python implementation of Baek, S., Lim, J., & Lee, K. (2015). Isometric Shape In
 ## Not yet available:
 - Meshes with boundary. Currently, it only supports closed (watertight) meshes.
 - Refinement. Section 2.3 of the paper.
+- Speed. It is far slower than the original C++ code.
+
+The above issues will be addressed in the near future.
 
 ## Get Started
+Clone this repository by running the following comand.
+```bash
+git clone -https://github.com/stephenbaek/isoblend.git
+cd isoblend
+```
+Create a virtual environment using conda.
+Alternatively, you could use `virtualenv`.
 ```bash
 conda create -n isoblend python=3.8 ipykernel nb_conda_kernels
 conda activate isoblend
 ```
 
-```bash
-git clone -https://github.com/stephenbaek/isoblend.git
-```
-
+Install dependencies.
 ```bash
 pip install -r requirements.txt
 ```
 
-Run `demo.ipynb`.
+You are now ready to run the code. For the usage, see `demo.ipynb`.
 
 
 ## Citation
+If you use this code for your work, please cite the article below.
 ```
 @article{baek2015:isometric,
     author = {Seung-Yeob Baek and Jeonghun Lim and Kunwoo Lee},
@@ -40,3 +48,19 @@ Run `demo.ipynb`.
 ```
 
 ## License
+
+```
+Copyright 2020 Stephen Baek
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
