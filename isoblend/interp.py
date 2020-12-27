@@ -51,3 +51,26 @@ def interpolate(key0, key1, t=0.5):
     mesh.update()
 
     return mesh
+
+
+def evaluate(mesh, key0, key1, t):
+    E = mesh.edges
+    l0 = np.sqrt(np.sum((key0.verts[E.T[0]] - key0.verts[E.T[1]])**2, axis=1))
+    l1 = np.sqrt(np.sum((key1.verts[E.T[0]] - key1.verts[E.T[1]])**2, axis=1))
+    l_true = (1-t)*l0 + t*l1
+    l_pred = np.sqrt(np.sum((mesh.verts[E.T[0]] - mesh.verts[E.T[1]])**2, axis=1))
+    return np.abs(l_pred - l_true)/l_true
+
+
+def refine(mesh):
+    NF = mesh.faces.shape[0]
+    mesh._compute_vertex_system()
+    mesh._prefactor_vertex_system()
+    
+    mesh._compute_face_system(constrained=range(NF))
+    mesh._prefactor_face_system()
+    mesh._solve_face_system(constrained=range(NF))
+
+    mesh._solve_vertex_system()
+    
+    return mesh

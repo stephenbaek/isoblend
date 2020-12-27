@@ -4,7 +4,6 @@ Python implementation of Baek, S., Lim, J., & Lee, K. (2015). Isometric Shape In
 
 ## Not yet available:
 - Meshes with boundary. Currently, it only supports closed (watertight) meshes.
-- Refinement. Section 2.3 of the paper.
 - Speed. It is far slower than the original C++ code.
 
 The above issues will be addressed in the near future.

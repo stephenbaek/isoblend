@@ -7,7 +7,7 @@ from copy import deepcopy
 
 
 class IICMesh:
-    least_squares_weight = 10.0
+    least_squares_weight = 1.0
 
     def __init__(self, filename=None):
         self.mesh = None
@@ -132,7 +132,7 @@ class IICMesh:
                     np.sum((self.verts[e[0]] - self.verts[e[1]]) ** 2)
                 )
 
-    def _compute_face_system(self):
+    def _compute_face_system(self, constrained=[0]):
         """Constructs a system of equation for reconstructing faces from IICs."""
         NE = self.edges.shape[0]
         NF = self.faces.shape[0]
@@ -165,18 +165,19 @@ class IICMesh:
             j.extend([3 * right, 3 * right + 1, 3 * right + 2])
             val.extend([self.Q[eid][2][0], self.Q[eid][2][1], self.Q[eid][2][2]])
 
-        # First face must be fixed.
-        i.extend([3 * NE, 3 * NE + 1, 3 * NE + 2])
-        j.extend([0, 1, 2])
-        val.extend(
-            [
-                self.least_squares_weight,
-                self.least_squares_weight,
-                self.least_squares_weight,
-            ]
-        )
+        # Constrained faces
+        for c, fid in enumerate(constrained):
+            i.extend([3 * NE + 3 * c, 3 * NE + 3 * c + 1, 3 * NE + 3 * c + 2])
+            j.extend([3*fid, 3*fid+1, 3*fid + 2])
+            val.extend(
+                [
+                    self.least_squares_weight,
+                    self.least_squares_weight,
+                    self.least_squares_weight,
+                ]
+            )
 
-        self.H = coo_matrix((val, (i, j)), shape=(3 * NE + 3, 3 * NF))
+        self.H = coo_matrix((val, (i, j)), shape=(3 * NE + 3 * len(constrained), 3 * NF))
 
     def _compute_vertex_system(self):
         # Vertex system
@@ -205,18 +206,19 @@ class IICMesh:
     def _prefactor_vertex_system(self):
         self.GTGinv = scipy.sparse.linalg.splu((self.G.T * self.G).tocsr())
 
-    def _solve_face_system(self):
+    def _solve_face_system(self, constrained=[0]):
         NE = self.edges.shape[0]
-        rhs = np.zeros((3 * NE + 3, 3))
-        rhs[3 * NE, 0] = self.least_squares_weight * self.tangent_frames[0][0][0]
-        rhs[3 * NE, 1] = self.least_squares_weight * self.tangent_frames[0][0][1]
-        rhs[3 * NE, 2] = self.least_squares_weight * self.tangent_frames[0][0][2]
-        rhs[3 * NE + 1, 0] = self.least_squares_weight * self.tangent_frames[0][1][0]
-        rhs[3 * NE + 1, 1] = self.least_squares_weight * self.tangent_frames[0][1][1]
-        rhs[3 * NE + 1, 2] = self.least_squares_weight * self.tangent_frames[0][1][2]
-        rhs[3 * NE + 2, 0] = self.least_squares_weight * self.tangent_frames[0][2][0]
-        rhs[3 * NE + 2, 1] = self.least_squares_weight * self.tangent_frames[0][2][1]
-        rhs[3 * NE + 2, 2] = self.least_squares_weight * self.tangent_frames[0][2][2]
+        rhs = np.zeros((3 * NE + 3*len(constrained), 3))
+        for i, fid in enumerate(constrained):
+            rhs[3 * NE + 3 * i, 0] = self.least_squares_weight * self.tangent_frames[fid][0][0]
+            rhs[3 * NE + 3 * i, 1] = self.least_squares_weight * self.tangent_frames[fid][0][1]
+            rhs[3 * NE + 3 * i, 2] = self.least_squares_weight * self.tangent_frames[fid][0][2]
+            rhs[3 * NE + 3 * i + 1, 0] = self.least_squares_weight * self.tangent_frames[fid][1][0]
+            rhs[3 * NE + 3 * i + 1, 1] = self.least_squares_weight * self.tangent_frames[fid][1][1]
+            rhs[3 * NE + 3 * i + 1, 2] = self.least_squares_weight * self.tangent_frames[fid][1][2]
+            rhs[3 * NE + 3 * i + 2, 0] = self.least_squares_weight * self.tangent_frames[fid][2][0]
+            rhs[3 * NE + 3 * i + 2, 1] = self.least_squares_weight * self.tangent_frames[fid][2][1]
+            rhs[3 * NE + 3 * i + 2, 2] = self.least_squares_weight * self.tangent_frames[fid][2][2]
 
         x = self.HTHinv.solve(self.H.T * rhs)
         self.x = x  # for debugging

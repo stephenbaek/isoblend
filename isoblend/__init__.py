@@ -1,2 +1,2 @@
 from .mesh import IICMesh
-from .interp import interpolate
+from .interp import interpolate, refine, evaluate
