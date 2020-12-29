@@ -1,13 +1,18 @@
 import open3d
 import numpy as np
 import scipy
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix, vstack
 import scipy.sparse.linalg
 from copy import deepcopy
 
+def norm(X, axis=1, keepdims=True):
+    return np.sqrt(np.sum(X**2, axis=axis, keepdims=keepdims))
+
+def normalize(X, axis=1):
+    return X / norm(X, axis=axis)
 
 class IICMesh:
-    least_squares_weight = 1.0
+    least_squares_weight = 0.1
 
     def __init__(self, filename=None):
         self.mesh = None
@@ -39,6 +44,9 @@ class IICMesh:
         self._compute_IIC()
         self._compute_face_system()
         self._compute_vertex_system()
+
+    def write(self, filename):
+        open3d.io.write_triangle_mesh(filename, self.mesh, write_ascii=True)
 
     def show(self, zoom=1, lookat=[0, 0, 0], front=[-1, 0.3, -1], up=[0, 1, 0]):
         """Displays the mesh. A new window will pop up.
@@ -100,8 +108,7 @@ class IICMesh:
         I1 = self.faces[:, 1]
 
         N = np.asarray(self.mesh.triangle_normals)
-        X = self.verts[I1] - self.verts[I0]
-        X /= np.sqrt(np.sum(X ** 2, axis=1, keepdims=True))  # normalize
+        X = normalize(self.verts[I1] - self.verts[I0])
         Y = np.cross(N, X)
 
         # tangent frames (a |F| x 3 x 3 tensor)
@@ -128,9 +135,9 @@ class IICMesh:
                 self.Q[eid] = np.matmul(
                     self.tangent_frames[left], np.linalg.inv(self.tangent_frames[right])
                 )
-                self.L[eid] = np.sqrt(
-                    np.sum((self.verts[e[0]] - self.verts[e[1]]) ** 2)
-                )
+                self.L[eid] = norm(self.verts[e[0]] - self.verts[e[1]], axis=0)
+            else:
+                raise NotImplementedError("Only supports closed surfaces.")
 
     def _compute_face_system(self, constrained=[0]):
         """Constructs a system of equation for reconstructing faces from IICs."""
@@ -147,6 +154,7 @@ class IICMesh:
 
             # TODO: matrix becomes singular when boundary exists
             if left is None or right is None:
+                print(f"singular! {eid}")
                 continue
 
             i.extend([3 * eid, 3 * eid + 1, 3 * eid + 2])
@@ -155,16 +163,16 @@ class IICMesh:
 
             i.extend([3 * eid, 3 * eid, 3 * eid])
             j.extend([3 * right, 3 * right + 1, 3 * right + 2])
-            val.extend([self.Q[eid][0][0], self.Q[eid][0][1], self.Q[eid][0][2]])
+            val.extend([self.Q[eid][0][0], self.Q[eid][1][0], self.Q[eid][2][0]])
 
             i.extend([3 * eid + 1, 3 * eid + 1, 3 * eid + 1])
             j.extend([3 * right, 3 * right + 1, 3 * right + 2])
-            val.extend([self.Q[eid][1][0], self.Q[eid][1][1], self.Q[eid][1][2]])
+            val.extend([self.Q[eid][0][1], self.Q[eid][1][1], self.Q[eid][2][1]])
 
             i.extend([3 * eid + 2, 3 * eid + 2, 3 * eid + 2])
             j.extend([3 * right, 3 * right + 1, 3 * right + 2])
-            val.extend([self.Q[eid][2][0], self.Q[eid][2][1], self.Q[eid][2][2]])
-
+            val.extend([self.Q[eid][0][2], self.Q[eid][1][2], self.Q[eid][2][2]])
+        
         # Constrained faces
         for c, fid in enumerate(constrained):
             i.extend([3 * NE + 3 * c, 3 * NE + 3 * c + 1, 3 * NE + 3 * c + 2])
@@ -193,7 +201,7 @@ class IICMesh:
                 [3 * fid, 3 * fid, 3 * fid + 1, 3 * fid + 1, 3 * fid + 2, 3 * fid + 2]
             )
             j.extend([f[0], f[1], f[1], f[2], f[2], f[0]])
-            val.extend([-1, 1, -1, 1, 1, -1])
+            val.extend([1, -1, 1, -1, 1, -1])
 
         i.extend([3 * NF])
         j.extend([0])
@@ -207,33 +215,34 @@ class IICMesh:
         self.GTGinv = scipy.sparse.linalg.splu((self.G.T * self.G).tocsr())
 
     def _solve_face_system(self, constrained=[0]):
-        NE = self.edges.shape[0]
-        rhs = np.zeros((3 * NE + 3*len(constrained), 3))
+        NF = self.edges.shape[0]
+        rhs = np.zeros((3 * NF + 3*len(constrained), 3))
         for i, fid in enumerate(constrained):
-            rhs[3 * NE + 3 * i, 0] = self.least_squares_weight * self.tangent_frames[fid][0][0]
-            rhs[3 * NE + 3 * i, 1] = self.least_squares_weight * self.tangent_frames[fid][0][1]
-            rhs[3 * NE + 3 * i, 2] = self.least_squares_weight * self.tangent_frames[fid][0][2]
-            rhs[3 * NE + 3 * i + 1, 0] = self.least_squares_weight * self.tangent_frames[fid][1][0]
-            rhs[3 * NE + 3 * i + 1, 1] = self.least_squares_weight * self.tangent_frames[fid][1][1]
-            rhs[3 * NE + 3 * i + 1, 2] = self.least_squares_weight * self.tangent_frames[fid][1][2]
-            rhs[3 * NE + 3 * i + 2, 0] = self.least_squares_weight * self.tangent_frames[fid][2][0]
-            rhs[3 * NE + 3 * i + 2, 1] = self.least_squares_weight * self.tangent_frames[fid][2][1]
-            rhs[3 * NE + 3 * i + 2, 2] = self.least_squares_weight * self.tangent_frames[fid][2][2]
+            rhs[3 * NF + 3 * i, 0] = self.least_squares_weight * self.tangent_frames[fid][0][0]
+            rhs[3 * NF + 3 * i, 1] = self.least_squares_weight * self.tangent_frames[fid][1][0]
+            rhs[3 * NF + 3 * i, 2] = self.least_squares_weight * self.tangent_frames[fid][2][0]
+            rhs[3 * NF + 3 * i + 1, 0] = self.least_squares_weight * self.tangent_frames[fid][0][1]
+            rhs[3 * NF + 3 * i + 1, 1] = self.least_squares_weight * self.tangent_frames[fid][1][1]
+            rhs[3 * NF + 3 * i + 1, 2] = self.least_squares_weight * self.tangent_frames[fid][2][1]
+            rhs[3 * NF + 3 * i + 2, 0] = self.least_squares_weight * self.tangent_frames[fid][0][2]
+            rhs[3 * NF + 3 * i + 2, 1] = self.least_squares_weight * self.tangent_frames[fid][1][2]
+            rhs[3 * NF + 3 * i + 2, 2] = self.least_squares_weight * self.tangent_frames[fid][2][2]
 
         x = self.HTHinv.solve(self.H.T * rhs)
         self.x = x  # for debugging
         self.old = deepcopy(self.tangent_frames)  # for debugging
 
         # Orthogonalize
-        # TODO: compare speed between qr and orth
         for fid, f in enumerate(self.faces):
-            # self.tangent_frames[fid] = scipy.linalg.orth(x[3*fid:3*fid+3, :])
-            Q, R = np.linalg.qr(x[3 * fid : 3 * fid + 3, :])
-            dR = np.array([1, 1, 1])
-            for i in range(3):
-                if R[i][i] < 0:
-                    dR[i] = -1
-            self.tangent_frames[fid] = Q * dR
+            D = x[3*fid:3*fid+3,:].T
+            u = D.T[0]
+            n = D.T[2]
+            u = normalize(u, axis=0)
+            n = normalize(n, axis=0)
+            v = np.cross(n, u)
+            self.tangent_frames[fid].T[0] = u
+            self.tangent_frames[fid].T[1] = v
+            self.tangent_frames[fid].T[2] = n
 
     def _solve_vertex_system(self):
         NF = self.faces.shape[0]
@@ -255,8 +264,8 @@ class IICMesh:
             X = self.tangent_frames[fid].T[0]
             Y = self.tangent_frames[fid].T[1]
 
-            rhs[3 * fid, :] = lengths[0] * X
-            rhs[3 * fid + 1, :] = -lengths[1] * cos1 * X + lengths[1] * sin1 * Y
+            rhs[3 * fid, :] = -lengths[0] * X
+            rhs[3 * fid + 1, :] = lengths[1] * cos1 * X - lengths[1] * sin1 * Y
             rhs[3 * fid + 2, :] = lengths[2] * cos0 * X + lengths[2] * sin0 * Y
 
         rhs[3 * NF, 0] = self.least_squares_weight * self.verts[0][0]
@@ -271,3 +280,4 @@ class IICMesh:
             self.mesh.vertices[vid][1] = v[1]
             self.mesh.vertices[vid][2] = v[2]
         self.mesh.compute_triangle_normals()
+        self.mesh.compute_vertex_normals()
